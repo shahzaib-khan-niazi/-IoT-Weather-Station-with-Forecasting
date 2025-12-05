@@ -15,8 +15,8 @@ latest_prediction = 0  # Stores latest AI prediction
 # =========================================================
 # --- ThingSpeak Configuration ---
 # =========================================================
-THINGSPEAK_WRITE_API_KEY = "9N60V6HWWU57PLSA"
-THINGSPEAK_CHANNEL_ID = "3175714"  # NOTE: The Python update targets fields 1 and 5
+THINGSPEAK_WRITE_API_KEY = "your api"
+THINGSPEAK_CHANNEL_ID = "your channel id"  # NOTE: The Python update targets fields 1 and 5
 THINGSPEAK_UPDATE_URL = "https://api.thingspeak.com/update"
 # Increased delay to 45 seconds to avoid conflicts with ESP32's 60-second cycle
 THINGSPEAK_PREDICTION_DELAY = 45
