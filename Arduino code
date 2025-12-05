@@ -1,0 +1,161 @@
+#include "DHT.h"
+#include <Wire.h>
+#include <Adafruit_BMP085.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// =========================================================
+// --- Wi-Fi Credentials (YOUR VALUES) ---
+// =========================================================
+const char* ssid = "your wifi name";
+const char* password = "password";
+
+// =========================================================
+// --- ThingSpeak Credentials (Raw Sensor Data) ---
+// =========================================================
+const char* TS_SERVER = "http://api.thingspeak.com/update";
+String TS_API_KEY = "your api"; 
+int TS_CHANNEL_ID =  your channel id;
+
+// =========================================================
+// --- Python Server Credentials (AI Prediction) ---
+// =========================================================
+const char* pythonServerHost = "192...."; // Your PC's local IP
+const int pythonServerPort = 50...;              // Flask server port
+String pythonServerEndpoint = "/data";          // Flask endpoint for POST
+
+// =========================================================
+// --- Sensors ---
+// =========================================================
+#define DHTPIN 4
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+Adafruit_BMP085 bmp;
+
+const int WATER_PIN = 34;
+
+// =========================================================
+// --- Timer ---
+// =========================================================
+unsigned long lastSend = 0;
+const unsigned long sendInterval = 30000;   // 30 seconds
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+
+  // --- Init Sensors ---
+  dht.begin();
+  pinMode(WATER_PIN, INPUT);
+
+  if (!bmp.begin()) {
+    Serial.println("❌ BMP180 not found!");
+  } else {
+    Serial.println("✅ BMP180 OK");
+  }
+
+  // --- Wi-Fi ---
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+
+  int tries = 0;
+  while (WiFi.status() != WL_CONNECTED && tries < 40) {
+    delay(500);
+    Serial.print(".");
+    tries++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ Connected!");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n❌ WiFi Failed!");
+  }
+}
+
+void loop() {
+
+  if (millis() - lastSend >= sendInterval) {
+
+    // === READ SENSOR DATA ===
+    float tempC = dht.readTemperature();
+    float hum = dht.readHumidity();
+    long pressure = bmp.readPressure();
+    int water = analogRead(WATER_PIN);
+
+    if (isnan(tempC) || isnan(hum)) {
+      Serial.println("❌ DHT11 read error!");
+      lastSend = millis();
+      return;
+    }
+
+    // ======================================================
+    // --- ThingSpeak Payload (fields 1–4) ---
+    // ======================================================
+    String tsData = "api_key=" + TS_API_KEY +
+                    "&field1=" + String(tempC, 2) +
+                    "&field2=" + String(hum, 2) +
+                    "&field3=" + String(pressure) +
+                    "&field4=" + String(water);
+
+    // ======================================================
+    // --- Python Server Payload ---
+    // ======================================================
+    String pyData = "temp=" + String(tempC, 2) +
+                    "&humidity=" + String(hum, 2) +
+                    "&pressure=" + String(pressure) +
+                    "&water=" + String(water);
+
+    Serial.println("\n----------------------------------------");
+    Serial.println("ThingSpeak Payload:");
+    Serial.println(tsData);
+    Serial.println("Python Payload:");
+    Serial.println(pyData);
+
+    // ======================================================
+    // --- SEND TO THINGSPEAK ---
+    // ======================================================
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      http.begin(TS_SERVER);
+      http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+      int code = http.POST(tsData);
+
+      if (code > 0) {
+        Serial.println("✅ Sent to ThingSpeak");
+      } else {
+        Serial.print("❌ ThingSpeak Error: ");
+        Serial.println(code);
+      }
+
+      http.end();
+    }
+
+    // ======================================================
+    // --- SEND TO PYTHON /data ---
+    // ======================================================
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http2;
+      String fullURL = String("http://") + pythonServerHost + ":" + String(pythonServerPort) + pythonServerEndpoint;
+
+      http2.begin(fullURL);
+      http2.addHeader("Content-Type", "application/x-www-form-urlencoded");
+      int code2 = http2.POST(pyData);
+
+      if (code2 > 0) {
+        String reply = http2.getString();
+        Serial.print("✅ Python AI Reply: ");
+        Serial.println(reply);
+      } else {
+        Serial.print("❌ Python Server Error: ");
+        Serial.println(code2);
+      }
+
+      http2.end();
+    }
+
+    lastSend = millis();
+  }
+}
